@@ -12,7 +12,6 @@ def gen_search_url(no_rooms, min_price, max_price):
     url = parse.urljoin(url, "cluj-napoca")
     if min_price is not None or max_price is not None:
         # dose have a query string in this case
-        url += "?"
         query_args = {}  # list of query string args
         if min_price is not None:
             min_price_str = str(min_price)
@@ -25,6 +24,10 @@ def gen_search_url(no_rooms, min_price, max_price):
         url = parse.urljoin(url, "?{0}".format(
             query_string))  # add query string
     return url
+
+
+def parse_price(price_txt):
+    return int(price_txt[:-1].strip())  # euro sign at end
 
 
 class OlxSpider(scrapy.Spider):
@@ -41,8 +44,6 @@ class OlxSpider(scrapy.Spider):
                              max_price)
         self.start_urls = [url]
 
-    def _parse_price(self, price_txt):
-        return int(price_txt[:-1].strip())  # euro sign at end
 
     def parse(self, response):
         """Parse function, iterates over all offer pages and
@@ -52,7 +53,7 @@ class OlxSpider(scrapy.Spider):
             item['title'] = offer.css(
                 ".detailsLink strong::text").extract_first()
             price_txt = offer.css(".price strong::text").extract_first()
-            item['price'] = self._parse_price(
+            item['price'] = parse_price(
                 price_txt)  # remove unnecesary chars
             item['link'] = offer.css(
                 ".detailsLink::attr(href)").extract_first()  # link to offer
@@ -68,5 +69,14 @@ class OlxSpider(scrapy.Spider):
 
     def parse_offer_page(self, response):
         item = response.meta['item']
-        self.logger.info("IM HERE!!!!!111!!")
-        return item  # TODO: it works for now
+        for text in response.css("#offerdescription strong a::text").extract():
+            if text.strip() == "Decomandat":
+                item['is_decomandat'] = True
+            if text.strip() == "Semidecomandat":
+                item['is_decomandat'] = False
+            if text.strip() == "Agentie":
+                item['is_agency'] = True
+            if text.strip() == "Private":
+                item['is_agency'] = False
+
+        return item
