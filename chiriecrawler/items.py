@@ -11,6 +11,7 @@ import scrapy
 class RentItem(scrapy.Item):
     """Generic data for all rents"""
     title = scrapy.Field()
+    link = scrapy.Field()
     price = scrapy.Field()
     surface = scrapy.Field()
     is_decomandat = scrapy.Field()
@@ -18,7 +19,6 @@ class RentItem(scrapy.Item):
     has_pictures = scrapy.Field()
     date = scrapy.Field()  # data at which the offer has been added
     views = scrapy.Field()
-
 
 
 class OlxRentItem(RentItem):

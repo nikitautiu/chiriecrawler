@@ -69,6 +69,8 @@ class OlxSpider(scrapy.Spider):
 
     def parse_offer_page(self, response):
         item = response.meta['item']
+        item['has_pictures'] = bool(response.css(".bigImage"))
+
         for text in response.css("#offerdescription strong a::text").extract():
             if text.strip() == "Decomandat":
                 item['is_decomandat'] = True
@@ -76,7 +78,7 @@ class OlxSpider(scrapy.Spider):
                 item['is_decomandat'] = False
             if text.strip() == "Agentie":
                 item['is_agency'] = True
-            if text.strip() == "Private":
+            if text.strip() == "Privat":
                 item['is_agency'] = False
 
         return item
