@@ -1,7 +1,9 @@
 #!/bin/env python3
 import scrapy
+from scrapy.loader import processors
 from chiriecrawler import items
 from urllib import parse
+import re
 
 
 def gen_search_url(no_rooms, min_price, max_price):
@@ -26,8 +28,15 @@ def gen_search_url(no_rooms, min_price, max_price):
     return url
 
 
-def parse_price(price_txt):
-    return int(price_txt[:-1].strip())  # euro sign at end
+def parse_nested_int(price_values):
+    return int(re.search("[0-9]+", price_values[0]).group(0))
+
+
+
+# Custom Loader
+class OlxItemLoader(scrapy.loader.ItemLoader):
+    default_item_class = items.DescrRentItem
+    default_output_processor = processors.TakeFirst()
 
 
 class OlxSpider(scrapy.Spider):
@@ -44,22 +53,21 @@ class OlxSpider(scrapy.Spider):
                              max_price)
         self.start_urls = [url]
 
-
     def parse(self, response):
         """Parse function, iterates over all offer pages and
         yields all offers"""
         for offer in response.css(".offer"):
-            item = items.OlxRentItem()
-            item['title'] = offer.css(
-                ".detailsLink strong::text").extract_first()
-            price_txt = offer.css(".price strong::text").extract_first()
-            item['price'] = parse_price(
-                price_txt)  # remove unnecesary chars
-            item['link'] = offer.css(
-                ".detailsLink::attr(href)").extract_first()  # link to offer
-            yield scrapy.Request(response.urljoin(item['link']),
-                                 callback=self.parse_offer_page,
-                                 meta={'item': item})  # pass the item to nested parser
+            loader = OlxItemLoader(selector=offer)
+
+            loader.add_css("title", ".detailsLink strong::text")
+            loader.add_css("price", ".price strong::text", parse_nested_int)
+            loader.add_css("link", ".detailsLink::attr(href)")
+
+            item = loader.load_item()
+            if "link" in item:
+                yield scrapy.Request(response.urljoin(item['link']),
+                                     callback=self.parse_offer_page,
+                                     meta={'item': item})  # pass the item
 
         next_page = response.css(".next a::attr(href)")
         if next_page:
@@ -68,17 +76,19 @@ class OlxSpider(scrapy.Spider):
             yield scrapy.Request(url, self.parse)
 
     def parse_offer_page(self, response):
-        item = response.meta['item']
-        item['has_pictures'] = bool(response.css(".bigImage"))
-
-        for text in response.css("#offerdescription strong a::text").extract():
-            if text.strip() == "Decomandat":
-                item['is_decomandat'] = True
-            if text.strip() == "Semidecomandat":
-                item['is_decomandat'] = False
-            if text.strip() == "Agentie":
-                item['is_agency'] = True
-            if text.strip() == "Privat":
-                item['is_agency'] = False
-
-        return item
+        loader = OlxItemLoader(response=response, item=response.meta['item'])
+        loader.add_value("has_pictures", bool(response.css(".bigImage")))
+        loader.add_css("views", "#offerbottombar strong::text")
+        for detail in response.css(".details .item"):
+            # parse the detail fields
+            if detail.css("th::text").extract_first() == "Oferit de":
+                loader.add_value("is_agency", detail.css(
+                    "a::text").extract_first == "Agentie")
+            elif detail.css("th::text").extract_first() == "Compartimentare":
+                loader.add_value("is_agency", detail.css(
+                    "a::text").extract_first == "Decomandat")
+            elif detail.css("th::text").extract_first() == "Suprafata":
+                loader.add_value("surface",
+                    detail.css("strong::text").extract(), parse_nested_int)
+        loader.add_css("descr", "#textContent .large::text")
+        return loader.load_item()
